@@ -1,8 +1,12 @@
 # Giggy Voice Agent
 
+Success means the voice picker loads, Start triggers the intro, and a spoken or typed turn produces an audible reply. Stop cuts playback; Disconnect returns to setup. Automated tests validate protocols, not every physical microphone device or hosted deployment. For native Pipecat reuse [existing PR #2](https://github.com/giggy-ai/pipecat-giggy/pull/2); this app uses its own Node bridge. For API onboarding use the [Node SDK](https://github.com/giggy-ai/giggy-js) or [Python SDK](https://github.com/giggy-ai/giggy-python).
+
 A standalone, cloud-only version of the Giggy voice agent demo. It includes the Giggy avatar, account voice picker, microphone conversation, streamed speech, interruption, and a live chat log.
 
 **Every user must have a Giggy account and bring their own Giggy and DeepSeek API keys.** No owner keys, private backend configuration, model files, GPU workers, or local/cloud selector are included.
+
+[Create a Giggy account](https://giggy.ai/?login=1&utm_source=github&utm_medium=referral&utm_campaign=developer_onboarding&utm_content=giggy-voice-agent_readme) · [Speech API guide](https://giggy.ai/docs/speech-api?utm_source=github&utm_medium=referral&utm_campaign=developer_onboarding&utm_content=giggy-voice-agent_docs) · [Browser voice sandbox](https://github.com/giggy-ai/giggy-voice-agent)
 
 ## Run
 
@@ -27,11 +31,11 @@ Usage is charged to the accounts owning the keys. Available account credits and 
 
 The cloud bridge is derived from Giggy's existing demo cloud implementation. It exclusively calls:
 
-- `https://giggy.ai/v1/voices` â€” account validation and voice discovery.
-- `https://giggy.ai/v1/audio/transcriptions` â€” streaming microphone transcription.
-- `https://giggy.ai/api/generations/{id}/stt-input` â€” PCM microphone input upload.
-- `https://giggy.ai/v1/text-to-speech` â€” streaming 24 kHz PCM speech.
-- `https://api.deepseek.com/models` and `/chat/completions` â€” key validation and streamed responses.
+- `https://giggy.ai/v1/voices` — account validation and voice discovery.
+- `https://giggy.ai/v1/audio/transcriptions` — streaming microphone transcription.
+- `https://giggy.ai/api/generations/{id}/stt-input` — PCM microphone input upload.
+- `https://giggy.ai/v1/text-to-speech` — streaming 24 kHz PCM speech.
+- `https://api.deepseek.com/models` and `/chat/completions` — key validation and streamed responses.
 
 Giggy origin is fixed in the code. There is no development API URL override, anonymous demo bypass, worker relay, local model path, or runtime selector.
 
