@@ -154,7 +154,7 @@ function createCloudHandler({ providerFetch = fetch } = {}) {
         const capture = payload._capture;
         if (!capture || capture.id !== turnId || capture.bytes < 640) throw new Error('No microphone audio was captured.');
         if (!payload.thread_history) payload.thread_history = capture.options.thread_history;
-        stages.push({ kind: 'stt', url: `${sttOrigin}/v1/audio/transcriptions`, body: { mode: 'streaming', microphone: true, client_request_id: crypto.randomUUID() }, capture });
+        stages.push({ kind: 'stt', url: `${sttOrigin}/v1/audio/transcriptions`, body: { mode: 'streaming', microphone: true }, capture });
       }
       stages.push({ kind: synthesisOnly ? 'tts' : 'llm' });
       const llmRequest = {
@@ -210,7 +210,7 @@ function createCloudHandler({ providerFetch = fetch } = {}) {
           return;
         }
         if (!(response.headers.get('content-type') || '').includes('text/event-stream')) { await response.body.cancel(); throw new Error('Expected streaming provider events.'); }
-        const decoder = new TextDecoder(); let buffer = '', complete = false;
+        const decoder = new TextDecoder(); let buffer = '', complete = false, generationId = null;
         providerEvents: for await (const raw of response.body) {
           if (signal.aborted) throw signal.reason;
           buffer += decoder.decode(raw, { stream: true });
@@ -224,10 +224,16 @@ function createCloudHandler({ providerFetch = fetch } = {}) {
             const event = JSON.parse(data);
             if (event.error || event.status === 'failed' || event.generation?.status === 'failed') throw new Error(`${stage.kind.toUpperCase()} generation failed.`);
             if (stage.kind === 'stt') {
+              if (frame.split(/\r?\n/).includes('event: generation_created')) {
+                const admittedId = event.generation_uuid || event.generation?.generation_uuid;
+                if (generationId || typeof admittedId !== 'string' || !/^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(admittedId))
+                  throw new Error('Invalid streaming STT admission.');
+                generationId = admittedId;
+              }
               if (event.input_token) {
                 const capture = stage.capture;
                 if (capture.sender || !/^[a-f0-9]{64}$/.test(event.input_token)
-                    || event.generation_uuid !== stage.body.client_request_id || !Number.isInteger(event.attempt))
+                    || !generationId || event.generation_uuid !== generationId || !Number.isInteger(event.attempt) || event.attempt < 1)
                   throw new Error('Invalid streaming STT readiness.');
                 metrics.stt_ready_ms = performance.now() - startedAt;
                 capture.sender = (async () => {

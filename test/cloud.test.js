@@ -55,10 +55,12 @@ test('STT starts uploading after 200 ms and retains batched uploads thereafter',
   const frame = event => encoder.encode('data: ' + JSON.stringify(event) + '\n\n');
   const send = createCloudHandler({ providerFetch: async (url, options) => {
     if (url.endsWith('/audio/transcriptions')) {
-      generation = JSON.parse(options.body).client_request_id;
+      assert.deepEqual(JSON.parse(options.body), { mode: 'streaming', microphone: true });
+      generation = '12345678-1234-4234-8234-123456789abc';
       return new Response(new ReadableStream({ start(controller) {
         sttController = controller;
-        controller.enqueue(frame({ input_token: 'a'.repeat(64), generation_uuid: generation, attempt: 0 }));
+        controller.enqueue(encoder.encode('event: generation_created\ndata: ' + JSON.stringify({ generation_uuid: generation }) + '\n\n'));
+        controller.enqueue(frame({ input_token: 'a'.repeat(64), generation_uuid: generation, attempt: 1 }));
       } }), { headers: { 'Content-Type': 'text/event-stream' } });
     }
     if (url.endsWith('/stt-input')) {
@@ -93,10 +95,12 @@ for (const outcome of ['completed', 'failed', 'interrupted']) {
     const frame = event => encoder.encode('data: ' + JSON.stringify(event) + '\n\n');
     const send = createCloudHandler({ providerFetch: async (url, options) => {
       if (url.endsWith('/audio/transcriptions')) {
-        generation = JSON.parse(options.body).client_request_id;
+        assert.deepEqual(JSON.parse(options.body), { mode: 'streaming', microphone: true });
+      generation = '12345678-1234-4234-8234-123456789abc';
         return new Response(new ReadableStream({ start(controller) {
           sttController = controller;
-          controller.enqueue(frame({ input_token: 'a'.repeat(64), generation_uuid: generation, attempt: 0 }));
+          controller.enqueue(encoder.encode('event: generation_created\ndata: ' + JSON.stringify({ generation_uuid: generation }) + '\n\n'));
+        controller.enqueue(frame({ input_token: 'a'.repeat(64), generation_uuid: generation, attempt: 1 }));
           options.signal.addEventListener('abort', () => { try { controller.error(options.signal.reason); } catch {} }, { once: true });
         } }), { headers: { 'Content-Type': 'text/event-stream' } });
       }
@@ -186,10 +190,12 @@ test('microphone PCM uploads to production STT and final transcript drives strea
     calls.push(url);
     if (url === 'https://giggy.ai/v1/audio/transcriptions') {
       assert.equal(options.headers['xi-api-key'], 'test-giggy-credential');
-      generation = JSON.parse(options.body).client_request_id;
+      assert.deepEqual(JSON.parse(options.body), { mode: 'streaming', microphone: true });
+      generation = '12345678-1234-4234-8234-123456789abc';
       return new Response(new ReadableStream({ start(controller) {
         sttController = controller;
-        controller.enqueue(frame({ input_token: 'a'.repeat(64), generation_uuid: generation, attempt: 0 }));
+        controller.enqueue(encoder.encode('event: generation_created\ndata: ' + JSON.stringify({ generation_uuid: generation }) + '\n\n'));
+        controller.enqueue(frame({ input_token: 'a'.repeat(64), generation_uuid: generation, attempt: 1 }));
       } }), { headers: { 'Content-Type': 'text/event-stream' } });
     }
     if (url === `https://giggy.ai/api/generations/${generation}/stt-input`) {
@@ -219,3 +225,23 @@ test('microphone PCM uploads to production STT and final transcript drives strea
   assert.ok(calls.includes('https://giggy.ai/v1/text-to-speech'));
   assert.equal(account.capture, null);
 });
+
+for (const fault of ['missing-admission', 'wrong-ready-id']) {
+  test(`server-generated STT identity rejects ${fault}`, async () => {
+    const events = [], account = session(); let uploads = 0;
+    const admitted = '12345678-1234-4234-8234-123456789abc';
+    const send = createCloudHandler({ providerFetch: async (url, options) => {
+      if (url.endsWith('/audio/transcriptions')) {
+        assert.deepEqual(JSON.parse(options.body), { mode: 'streaming', microphone: true });
+        const admission = fault === 'missing-admission' ? '' : 'event: generation_created\ndata: ' + JSON.stringify({ generation_uuid: admitted }) + '\n\n';
+        return new Response(admission + 'event: microphone_ready\ndata: ' + JSON.stringify({ input_token: 'a'.repeat(64), generation_uuid: '87654321-1234-4234-8234-123456789abc', attempt: 1 }) + '\n\n', { headers: { 'Content-Type': 'text/event-stream' } });
+      }
+      uploads++; throw new Error('Unexpected upload');
+    } });
+    await send(connection(events), { type: 'voice_agent_audio_start', turn_id: fault, voice }, account);
+    await send(connection(events), { type: 'voice_agent_audio_chunk', turn_id: fault, sequence: 0, sample_rate: 16000, chunk_base64: Buffer.alloc(6400).toString('base64') }, account);
+    await account.capture.pipeline;
+    assert.equal(uploads, 0);
+    assert.ok(events.some(e => e.type === 'voice_agent_error'));
+  });
+}

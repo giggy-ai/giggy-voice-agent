@@ -27,11 +27,11 @@ Usage is charged to the accounts owning the keys. Available account credits and 
 
 The cloud bridge is derived from Giggy's existing demo cloud implementation. It exclusively calls:
 
-- `https://giggy.ai/v1/voices` — account validation and voice discovery.
-- `https://giggy.ai/v1/audio/transcriptions` — streaming microphone transcription.
-- `https://giggy.ai/api/generations/{id}/stt-input` — PCM microphone input upload.
-- `https://giggy.ai/v1/text-to-speech` — streaming 24 kHz PCM speech.
-- `https://api.deepseek.com/models` and `/chat/completions` — key validation and streamed responses.
+- `https://giggy.ai/v1/voices` â€” account validation and voice discovery.
+- `https://giggy.ai/v1/audio/transcriptions` â€” streaming microphone transcription.
+- `https://giggy.ai/api/generations/{id}/stt-input` â€” PCM microphone input upload.
+- `https://giggy.ai/v1/text-to-speech` â€” streaming 24 kHz PCM speech.
+- `https://api.deepseek.com/models` and `/chat/completions` â€” key validation and streamed responses.
 
 Giggy origin is fixed in the code. There is no development API URL override, anonymous demo bypass, worker relay, local model path, or runtime selector.
 
@@ -78,3 +78,5 @@ Automated tests use fake credentials and mocked provider responses; they do not 
 Publish only this directory as a new repository. Do not copy your private `giggy2` checkout, its `.env`, Git history, logs, or archives into it. The scanner checks common credential patterns and forbidden file types; it cannot guarantee detection of every possible secret.
 
 
+
+Streaming microphone admission omits `client_request_id`. The server returns the session UUID in `generation_created`; the bridge verifies it against `microphone_ready` before uploading ordered PCM frames. Session IDs do not resume disconnected microphone sessions.
