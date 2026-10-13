@@ -8,6 +8,50 @@ function session() { return { sessionId: 'test-session', credentials: {
 }, audioSequence: 0, controllers: new Set(), turn: null, capture: null }; }
 function connection(events) { return { readyState: 1, bufferedAmount: 0, send: raw => events.push(JSON.parse(raw)) }; }
 const voice = { voice_source: 'voice_library', voice_library_uuid: VOICE };
+test('server retains prior turns with a stable request prefix and reports cached tokens', async () => {
+  const calls = [], events = [], account = session();
+  const send = createCloudHandler({ providerFetch: async (url, options) => {
+    if (url.includes('deepseek')) {
+      const body = JSON.parse(options.body); calls.push(body);
+      assert.deepEqual(body.stream_options, { include_usage: true });
+      return new Response('data: ' + JSON.stringify({ choices: [{ delta: { content: 'Hello Ada.' } }] }) +
+        '\n\ndata: ' + JSON.stringify({ choices: [], usage: { prompt_tokens: 120, completion_tokens: 5,
+          prompt_cache_hit_tokens: 100, prompt_cache_miss_tokens: 20 } }) + '\n\ndata: [DONE]\n\n',
+      { headers: { 'Content-Type': 'text/event-stream' } });
+    }
+    return new Response(new Uint8Array(4), { headers: { 'Content-Type': 'audio/pcm' } });
+  } });
+  await send(connection(events), { type: 'voice_agent_user_text', text: 'My name is Ada.', turn_id: 'one', voice }, account);
+  await send(connection(events), { type: 'voice_agent_user_text', text: 'What is my name?', turn_id: 'two', voice }, account);
+  assert.deepEqual(calls[1].messages.slice(0, calls[0].messages.length), calls[0].messages);
+  assert.deepEqual(calls[1].messages.slice(-2), [{ role: 'assistant', content: 'Hello Ada.' }, { role: 'user', content: 'What is my name?' }]);
+  assert.equal(events.filter(e => e.type === 'voice_agent_metrics').at(-1).metrics.llm_usage.prompt_cache_hit_tokens, 100);
+  const reconnected = { ...session(), credentials: account.credentials };
+  await send(connection(events), { type: 'voice_agent_user_text', text: 'Do you still remember?', turn_id: 'three', voice }, reconnected);
+  assert.deepEqual(calls[2].messages.slice(0, calls[1].messages.length), calls[1].messages);
+});
+test('long conversation uses the compacted context and records summary usage separately', async () => {
+  const calls = [], events = [], account = session();
+  const { ConversationMemory } = require('../memory');
+  const history = Array.from({ length: 18 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', content: `Older message ${i}` }));
+  account.memory = new ConversationMemory(history, { maxMessages: 16, keepMessages: 6 });
+  const send = createCloudHandler({ providerFetch: async (url, options) => {
+    if (url.includes('deepseek')) {
+      const body = JSON.parse(options.body); calls.push(body);
+      if (!body.stream) return Response.json({ choices: [{ finish_reason: 'stop', message: { content: 'The user is Ada.' } }],
+        usage: { prompt_tokens: 100, completion_tokens: 8 } });
+      return new Response('data: ' + JSON.stringify({ choices: [{ delta: { content: 'Hello Ada.' } }] }) + '\n\ndata: [DONE]\n\n',
+        { headers: { 'Content-Type': 'text/event-stream' } });
+    }
+    return new Response(new Uint8Array(4), { headers: { 'Content-Type': 'audio/pcm' } });
+  } });
+  await send(connection(events), { type: 'voice_agent_user_text', text: 'Remember me?', thread_history: history, turn_id: 'compact', voice }, account);
+  assert.equal(calls.length, 2);
+  assert.match(calls[1].messages[1].content, /The user is Ada/);
+  assert.deepEqual(calls[1].messages.slice(2, -1), history.slice(-6));
+  assert.equal(calls[1].messages.at(-1).content, 'Remember me?');
+  assert.equal(events.find(e => e.type === 'voice_agent_metrics').metrics.llm_summary_usage.completion_tokens, 8);
+});
 test('session startup automatically speaks one main-demo greeting with the selected voice', async () => {
   const events = [], calls = [], account = session(), ws = connection(events);
   const send = createCloudHandler({ providerFetch: async (url, options) => {

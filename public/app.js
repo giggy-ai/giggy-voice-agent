@@ -47,7 +47,7 @@ function microphoneSamples(samples) {
       return;
     }
     capture = { id: newTurn(), sequence: 0, started: now, lastSpeech: now };
-    send({ type: 'voice_agent_audio_start', turn_id: capture.id, voice: voice(), thread_history: history.slice(-32) });
+    send({ type: 'voice_agent_audio_start', turn_id: capture.id, voice: voice() });
     for (const frame of preRoll) send({ type: 'voice_agent_audio_chunk', turn_id: capture.id,
       sequence: capture.sequence++, sample_rate: 16000, chunk_base64: pcmBase64(frame) });
     preRoll = []; onsetMs = 0;
@@ -57,7 +57,7 @@ function microphoneSamples(samples) {
   send({ type: 'voice_agent_audio_chunk', turn_id: capture.id, sequence: capture.sequence++, sample_rate: 16000,
     chunk_base64: pcmBase64(samples) });
   if (now - capture.lastSpeech >= Number($('timing').value) || now - capture.started >= 28000) {
-    send({ type: 'voice_agent_audio_end', turn_id: capture.id, voice: voice(), thread_history: history.slice(-32) });
+    send({ type: 'voice_agent_audio_end', turn_id: capture.id, voice: voice() });
     capture = null; preRoll = []; onsetMs = 0; status('Thinking…');
   }
 }
@@ -134,7 +134,7 @@ async function start() {
       socket.onerror = () => { clearTimeout(timeout); reject(new Error('Connect your API keys again to start.')); };
     });
     active = true; introPending = true; socket.onclose = () => { if (active) void stop('Session ended. Reconnect your keys if they expired.'); };
-    send({ type: 'voice_agent_session_start', voice: voice(), agent_instructions: 'Be friendly, concise, and conversational.' });
+    send({ type: 'voice_agent_session_start', voice: voice(), thread_history: history.slice(-32), agent_instructions: 'Be friendly, concise, and conversational.' });
     micSource = context.createMediaStreamSource(stream);
     if (context.audioWorklet && typeof AudioWorkletNode !== 'undefined') {
       await context.audioWorklet.addModule('/microphone-worklet.js');
@@ -185,7 +185,7 @@ $('message-form').onsubmit = event => {
   event.preventDefault(); const text = $('message').value.trim(); if (!active || !text) return;
   if (capture) { send({ type: 'voice_agent_interrupt', turn_id: capture.id }); capture = null; }
   const id = newTurn(); bubble('user', text);
-  send({ type: 'voice_agent_user_text', turn_id: id, text, voice: voice(), thread_history: history.slice(-32) });
+  send({ type: 'voice_agent_user_text', turn_id: id, text, voice: voice() });
   history.push({ role: 'user', content: text }); $('message').value = ''; status('Thinking…');
 };
 const canvas = $('visualizer'), draw = canvas.getContext('2d'), levels = new Uint8Array(128);

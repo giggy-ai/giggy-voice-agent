@@ -1,6 +1,7 @@
 'use strict';
 const WebSocket = require('ws');
 const crypto = require('node:crypto');
+const { ConversationMemory } = require('./memory');
 const productionOrigin = 'https://giggy.ai';
 const sttOrigin = productionOrigin;
 const STANDARD_GREETINGS = [
@@ -53,6 +54,7 @@ function createCloudHandler({ providerFetch = fetch } = {}) {
     try {
       const type = String(payload.type || '');
       if (type === 'voice_agent_session_start') {
+        session.memory ||= session.credentials.memory ||= new ConversationMemory(payload.thread_history);
         session.voice = payload.voice;
         session.audioSequence = 0;
         session.instructions = String(payload.agent_instructions || '').slice(0, 6000);
@@ -67,8 +69,10 @@ function createCloudHandler({ providerFetch = fetch } = {}) {
         await send(ws, { type: 'voice_agent_intro', turn_id: introId, text });
         await send(ws, { type: 'voice_agent_synthesize_text', text, voice: session.voice, turn_id: introId,
           _stream: true, _controller: controller, _startedAt: performance.now(), _sentenceIndex: 0 }, session);
-        if (!controller.signal.aborted && session.turn === ownedTurn)
+        if (!controller.signal.aborted && session.turn === ownedTurn) {
+          session.memory.append('assistant', text);
           await send(ws, { type: 'voice_agent_turn_done', turn_id: introId, text });
+        }
         return;
       }
       if (type === 'voice_agent_interrupt' || type === 'voice_agent_session_end') {
@@ -130,6 +134,7 @@ function createCloudHandler({ providerFetch = fetch } = {}) {
       }
       if (!['voice_agent_synthesize_text', 'voice_agent_user_text', 'voice_agent_audio_end'].includes(type)) return;
       const synthesisOnly = type === 'voice_agent_synthesize_text';
+      if (!synthesisOnly) session.memory ||= session.credentials.memory ||= new ConversationMemory(payload.thread_history);
       const voice = payload.voice || session.voice;
       const voiceId = String(voice?.voice_library_uuid || '');
       if (!session.credentials.voiceIds.has(voiceId)) throw new Error('Choose a voice available to your Giggy account.');
@@ -158,10 +163,17 @@ function createCloudHandler({ providerFetch = fetch } = {}) {
       }
       stages.push({ kind: synthesisOnly ? 'tts' : 'llm' });
       const llmRequest = {
-        model: 'deepseek-flash', thinking: { type: 'disabled' }, stream: true, max_tokens: 160,
+        model: 'deepseek-flash', thinking: { type: 'disabled' }, stream: true, stream_options: { include_usage: true }, max_tokens: 160,
         messages: [{ role: 'system', content: `You are Giggy, a friendly voice assistant. Answer in one or two short, natural sentences. Start with a brief useful sentence. No markdown or stage directions. ${session.instructions || ''}` },
-          ...(Array.isArray(payload.thread_history) ? payload.thread_history : []).slice(-32).filter(m => ['user', 'assistant'].includes(m.role)).map(m => ({ role: m.role, content: String(m.content || '').slice(0, 1200) })), { role: 'user', content: text }],
+          ...(session.memory?.messages() || []), { role: 'user', content: text }],
       };
+      let contextReady;
+      const prepareContext = () => contextReady ||= (async () => {
+        const usage = await session.memory.compact({ providerFetch, apiKey: session.credentials.deepseekKey, signal });
+        signal.throwIfAborted();
+        if (usage) metrics.llm_summary_usage = usage;
+        llmRequest.messages = [llmRequest.messages[0], ...session.memory.messages(), { role: 'user', content: text }];
+      })();
       let llmResponse = null, llmStartedAt = null, llmTask = null;
       let commitTranscript;
       let transcriptCommitted = type !== 'voice_agent_audio_end';
@@ -174,7 +186,7 @@ function createCloudHandler({ providerFetch = fetch } = {}) {
         if (signal.aborted) throw signal.reason;
         if (stage.kind !== 'stt' && !text) throw new Error('The turn did not contain speech.');
         const stageStartedAt = stage.kind === 'llm' && llmStartedAt !== null ? llmStartedAt : performance.now();
-        if (stage.kind === 'llm') llmRequest.messages.at(-1).content = text;
+        if (stage.kind === 'llm') { await prepareContext(); llmRequest.messages.at(-1).content = text; }
         if (stage.kind === 'tts' && metrics.tts_started_ms === null) metrics.tts_started_ms = performance.now() - (payload._startedAt ?? startedAt);
         const response = await (stage.kind === 'llm' && llmResponse ? llmResponse : providerFetch(stage.url || (stage.kind === 'tts' ? `${productionOrigin}/v1/text-to-speech` : 'https://api.deepseek.com/chat/completions'), {
           method: 'POST', signal,
@@ -222,6 +234,12 @@ function createCloudHandler({ providerFetch = fetch } = {}) {
             if (!data) continue;
             if (data === '[DONE]') { complete = stage.kind === 'llm'; break providerEvents; }
             const event = JSON.parse(data);
+            if (stage.kind === 'llm' && event.usage) {
+              const usage = event.usage;
+              session.memory.observeUsage(usage);
+              metrics.llm_usage = { prompt_tokens: usage.prompt_tokens, completion_tokens: usage.completion_tokens,
+                prompt_cache_hit_tokens: usage.prompt_cache_hit_tokens, prompt_cache_miss_tokens: usage.prompt_cache_miss_tokens };
+            }
             if (event.error || event.status === 'failed' || event.generation?.status === 'failed') throw new Error(`${stage.kind.toUpperCase()} generation failed.`);
             if (stage.kind === 'stt') {
               if (frame.split(/\r?\n/).includes('event: generation_created')) {
@@ -275,6 +293,7 @@ function createCloudHandler({ providerFetch = fetch } = {}) {
               if (event.complete === true && text && !llmResponse) {
                 // Only the final transcript can start LLM work. Speech still
                 // waits for successful durable STT completion below.
+                await prepareContext();
                 llmRequest.messages.at(-1).content = text;
                 metrics.stt_final_text_ms = performance.now() - startedAt;
                 llmStartedAt = performance.now();
@@ -328,10 +347,14 @@ function createCloudHandler({ providerFetch = fetch } = {}) {
           for (const delta of waitingText) await send(ws, { type: 'voice_agent_assistant_text_delta', turn_id: turnId, delta });
           waitingText.length = 0;
           transcriptCommitted = true;
+          session.memory.append('user', text);
           commitTranscript();
         }
       }
       for (const stage of stages) {
+        if (stage.kind === 'llm' && type === 'voice_agent_user_text') {
+          await prepareContext(); session.memory.append('user', text);
+        }
         if (stage.kind === 'llm' && llmTask) await llmTask;
         else await processStage(stage);
       }
@@ -340,6 +363,7 @@ function createCloudHandler({ providerFetch = fetch } = {}) {
         await speechChain;
         if (speechError) throw speechError;
         if (session.turn !== ownedTurn || signal.aborted) return;
+        session.memory.append('assistant', answer);
         const audioEnd = payload._capture?.endedAt;
         await send(ws, { type: 'voice_agent_metrics', turn_id: turnId, metrics: { ...metrics,
           ...(audioEnd ? { first_audio_after_end_ms: metrics.first_audio_ms - (audioEnd - startedAt) } : {}), total_ms: performance.now() - startedAt } });

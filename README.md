@@ -56,6 +56,16 @@ Microphone capture requires HTTPS or loopback access. The UI captures and resamp
 
 ## Response timing
 
+### Conversation context and DeepSeek token costs
+
+DeepSeek context caching is automatic; there is no cache switch or persistent conversation ID. The server owns conversation memory in each authenticated account session. The browser sends recent history once when starting, then sends only each new turn. Each DeepSeek request still includes the context needed to answer.
+
+The system prompt and exact messages stay unchanged as turns are appended, allowing DeepSeek to reuse matching cached prefixes. Ordinary chats retain exact history instead of paying for frequent summaries. Long-context compaction starts when the previous request reports at least 8,192 input tokens, or the retained history exceeds 32,000 characters or 120 messages as fallback limits. These are application budget choices, not DeepSeek-required thresholds. The server then merges older messages into a summary of at most 1,200 characters and keeps the last eight messages verbatim. This reduces future input tokens, but summaries can omit details. Compaction changes the prefix, so cache reuse may temporarily drop. Summary calls use the user's DeepSeek key and cost input/output tokens, with a 300-token output limit and a 10-second timeout. Failed, empty or truncated summaries leave the original history in place, bounded to 128 messages. Failed compaction is attempted again only after four additional messages, limiting repeated summary charges.
+
+The `voice_agent_metrics` event includes `metrics.llm_usage` with prompt, completion, cache-hit and cache-miss token counts when DeepSeek returns them, plus `llm_summary_usage` for summary responses that include usage, even if the returned summary is rejected. Caching discounts repeated input; it does not eliminate transmitted context or guarantee cache hits. Memory stays in process memory until the authenticated account session is cleared, expires, or the server restarts. Stopping/reconnecting or refreshing within that session preserves server memory. A new server session can restore only the browser's latest 32 messages; disconnecting clears both credentials and history.
+
+See [DeepSeek context caching](https://api-docs.deepseek.com/guides/kv_cache/).
+
 The default **Fast pauses** mode ends a microphone turn after 450 ms of silence. **Longer pauses** uses 700 ms for speakers who pause mid-sentence. Shorter pauses can split a thought; use the longer option if that happens.
 
 The bridge uploads the first 200 ms of audio promptly, then keeps the existing half-second steady-state upload batches. Final transcription starts DeepSeek and prepares the first Giggy speech request while transcription completion is confirmed. Assistant text and audio are released only after successful transcription completion. Failed or interrupted input aborts prepared output. Preparing speech can incur a normal provider charge even if transcription subsequently fails.

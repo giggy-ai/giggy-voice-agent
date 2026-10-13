@@ -9,7 +9,7 @@
   "scripts": {
     "start": "node --env-file-if-exists=.env server.js",
     "test": "node --test",
-    "check": "node --check server.js && node --check cloud.js && node --check public/app.js && node --check public/microphone-worklet.js",
+    "check": "node --check server.js && node --check cloud.js && node --check memory.js && node --check public/app.js && node --check public/microphone-worklet.js",
     "audit:secrets": "node scripts/audit-secrets.js"
   },
   "dependencies": {
