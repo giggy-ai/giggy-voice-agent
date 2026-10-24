@@ -27,10 +27,10 @@ Usage is charged to the accounts owning the keys. Available account credits and 
 
 The cloud bridge is derived from Giggy's existing demo cloud implementation. It exclusively calls:
 
-- `https://giggy.ai/v1/voices` â€” account validation and voice discovery.
-- `https://giggy.ai/v1/audio/transcriptions` â€” streaming microphone transcription.
-- `https://giggy.ai/api/generations/{id}/stt-input` â€” PCM microphone input upload.
-- `https://giggy.ai/v1/text-to-speech` â€” streaming 24 kHz PCM speech.
+- `https://api.giggy.ai/v1/voices` â€” account validation and voice discovery.
+- `https://api.giggy.ai/v1/audio/transcriptions` â€” streaming microphone transcription.
+- `https://api.giggy.ai/api/generations/{id}/stt-input` â€” PCM microphone input upload.
+- `https://api.giggy.ai/v1/text-to-speech` â€” streaming 24 kHz PCM speech.
 - `https://api.deepseek.com/models` and `/chat/completions` â€” key validation and streamed responses.
 
 Giggy origin is fixed in the code. There is no development API URL override, anonymous demo bypass, worker relay, local model path, or runtime selector.
@@ -90,3 +90,7 @@ Publish only this directory as a new repository. Do not copy your private `giggy
 
 
 Streaming microphone admission omits `client_request_id`. The server returns the session UUID in `generation_created`; the bridge verifies it against `microphone_ready` before uploading ordered PCM frames. Session IDs do not resume disconnected microphone sessions.
+
+## Transport scope
+
+This sandbox currently selects the supported legacy HTTPS/SSE microphone bridge explicitly, including its ordered input-upload route. It does not demonstrate the production-default live WebSocket transport or the latency of the native LiveKit/Pipecat source adapters. New direct integrations should use `wss://api.giggy.ai/v1/audio/transcriptions`; see the [partner guide](https://github.com/giggy-ai/giggy-examples#partner-integrations). Existing legacy clients remain supported.

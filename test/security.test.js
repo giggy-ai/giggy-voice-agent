@@ -36,7 +36,7 @@ test('valid account gets a cookie; credentials never appear in responses and log
   const response = await connect(url), cookie = response.headers.get('set-cookie');
   assert.equal(response.status, 200); assert.match(cookie, /HttpOnly; SameSite=Strict/);
   assert.doesNotMatch(await response.text(), /test-giggy-credential|test-deepseek-credential/);
-  assert.equal(calls[0].url, 'https://giggy.ai/v1/voices');
+  assert.equal(calls[0].url, 'https://api.giggy.ai/v1/voices');
   assert.equal(calls[0].options.headers['xi-api-key'], 'test-giggy-credential');
   const headers = { Cookie: cookie.split(';')[0], Origin: 'http://localhost:3001' };
   assert.equal((await fetch(`${url}/api/session`, { headers })).status, 200);

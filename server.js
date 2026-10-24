@@ -64,7 +64,7 @@ function createApp({ origin = process.env.APP_ORIGIN || 'http://localhost:3001',
         if (![giggyKey, deepseekKey].every(key => key.length >= 10 && key.length <= 512 && !/\s/.test(key)))
           return reply(res, 400, { error: 'Enter your own Giggy and DeepSeek API keys.' });
         const checks = await Promise.all([
-          providerFetch('https://giggy.ai/v1/voices', { headers: { 'xi-api-key': giggyKey }, signal: AbortSignal.timeout(10000) }),
+          providerFetch('https://api.giggy.ai/v1/voices', { headers: { 'xi-api-key': giggyKey }, signal: AbortSignal.timeout(10000) }),
           providerFetch('https://api.deepseek.com/models', { headers: { Authorization: `Bearer ${deepseekKey}` }, signal: AbortSignal.timeout(10000) }),
         ]);
         if (!checks.every(response => response.ok)) {
