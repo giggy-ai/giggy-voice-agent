@@ -2,7 +2,7 @@
 const WebSocket = require('ws');
 const crypto = require('node:crypto');
 const { ConversationMemory } = require('./memory');
-const productionOrigin = 'https://giggy.ai';
+const productionOrigin = 'https://api.giggy.ai';
 const sttOrigin = productionOrigin;
 const STANDARD_GREETINGS = [
   'Hey, I am here and ready to listen. What is on your mind today?',

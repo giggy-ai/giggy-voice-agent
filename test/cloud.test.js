@@ -63,7 +63,7 @@ test('session startup automatically speaks one main-demo greeting with the selec
   const intro = events.find(e => e.type === 'voice_agent_intro');
   assert.match(intro.turn_id, /^greeting-/);
   assert.ok(intro.text.length > 20);
-  assert.equal(calls.length, 1); assert.equal(calls[0].url, 'https://giggy.ai/v1/text-to-speech');
+  assert.equal(calls.length, 1); assert.equal(calls[0].url, 'https://api.giggy.ai/v1/text-to-speech');
   assert.equal(calls[0].body.voice_id, VOICE); assert.equal(calls[0].body.text, intro.text);
   assert.ok(events.some(e => e.type === 'voice_agent_audio_chunk' && e.turn_id === intro.turn_id));
   assert.equal(events.at(-1).type, 'voice_agent_turn_done');
@@ -199,12 +199,12 @@ test('typed turn streams DeepSeek text and production Giggy PCM with the user cr
     calls.push({ url, options });
     if (url === 'https://api.deepseek.com/chat/completions')
       return new Response('data: ' + JSON.stringify({ choices: [{ delta: { content: 'Hello there.' } }] }) + '\n\ndata: [DONE]\n\n', { headers: { 'Content-Type': 'text/event-stream' } });
-    if (url === 'https://giggy.ai/v1/text-to-speech')
+    if (url === 'https://api.giggy.ai/v1/text-to-speech')
       return new Response(new Uint8Array([0, 0, 10, 0]), { headers: { 'Content-Type': 'audio/pcm' } });
     throw new Error('Unexpected endpoint');
   } });
   await send(connection(events), { type: 'voice_agent_user_text', text: 'Hi', turn_id: 'turn-1', voice }, account);
-  assert.deepEqual(calls.map(c => c.url), ['https://api.deepseek.com/chat/completions', 'https://giggy.ai/v1/text-to-speech']);
+  assert.deepEqual(calls.map(c => c.url), ['https://api.deepseek.com/chat/completions', 'https://api.giggy.ai/v1/text-to-speech']);
   assert.equal(calls[0].options.headers.Authorization, 'Bearer test-deepseek-credential');
   assert.equal(calls[1].options.headers['xi-api-key'], 'test-giggy-credential');
   assert.equal(JSON.parse(calls[1].options.body).voice_id, VOICE);
@@ -232,7 +232,7 @@ test('microphone PCM uploads to production STT and final transcript drives strea
   const frame = event => encoder.encode('data: ' + JSON.stringify(event) + '\n\n');
   const send = createCloudHandler({ providerFetch: async (url, options) => {
     calls.push(url);
-    if (url === 'https://giggy.ai/v1/audio/transcriptions') {
+    if (url === 'https://api.giggy.ai/v1/audio/transcriptions') {
       assert.equal(options.headers['xi-api-key'], 'test-giggy-credential');
       assert.deepEqual(JSON.parse(options.body), { mode: 'streaming', microphone: true });
       generation = '12345678-1234-4234-8234-123456789abc';
@@ -242,7 +242,7 @@ test('microphone PCM uploads to production STT and final transcript drives strea
         controller.enqueue(frame({ input_token: 'a'.repeat(64), generation_uuid: generation, attempt: 1 }));
       } }), { headers: { 'Content-Type': 'text/event-stream' } });
     }
-    if (url === `https://giggy.ai/api/generations/${generation}/stt-input`) {
+    if (url === `https://api.giggy.ai/api/generations/${generation}/stt-input`) {
       const body = JSON.parse(options.body);
       assert.equal(body.input_token, 'a'.repeat(64));
       if (body.complete) {
@@ -255,7 +255,7 @@ test('microphone PCM uploads to production STT and final transcript drives strea
       assert.equal(JSON.parse(options.body).messages.at(-1).content, 'Hello from the microphone.');
       return new Response('data: ' + JSON.stringify({ choices: [{ delta: { content: 'Hello back.' } }] }) + '\n\ndata: [DONE]\n\n', { headers: { 'Content-Type': 'text/event-stream' } });
     }
-    if (url === 'https://giggy.ai/v1/text-to-speech') return new Response(new Uint8Array(4), { headers: { 'Content-Type': 'audio/pcm' } });
+    if (url === 'https://api.giggy.ai/v1/text-to-speech') return new Response(new Uint8Array(4), { headers: { 'Content-Type': 'audio/pcm' } });
     throw new Error('Unexpected endpoint');
   } });
   await send(ws, { type: 'voice_agent_audio_start', turn_id: 'mic-turn', voice }, account);
@@ -266,7 +266,7 @@ test('microphone PCM uploads to production STT and final transcript drives strea
   await pipeline;
   assert.equal(events.find(e => e.type === 'voice_agent_transcript_final').text, 'Hello from the microphone.');
   assert.equal(events.at(-1).type, 'voice_agent_turn_done');
-  assert.ok(calls.includes('https://giggy.ai/v1/text-to-speech'));
+  assert.ok(calls.includes('https://api.giggy.ai/v1/text-to-speech'));
   assert.equal(account.capture, null);
 });
 
